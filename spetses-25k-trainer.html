@@ -208,6 +208,7 @@
   /* Empfehlung, Drag-Handle, Lock & Kalender-Icon */
   .session { align-items: center; }
   .s-meta { display:block; font-size:12.5px; color: var(--sea); font-weight:600; margin-top:3px; }
+  .s-garmin { display:inline-block; margin-top:5px; font-size:12px; color: var(--ink-soft); background: var(--bg-soft); border:1px solid var(--line); border-radius:7px; padding:2px 9px; }
 
   .drag-handle { flex-shrink:0; width:30px; height:38px; border:none; background:transparent; cursor:grab; color: var(--ink-soft); display:flex; align-items:center; justify-content:center; touch-action:none; padding:0; opacity:.6; transition:opacity .15s; }
   .drag-handle:hover { opacity:1; color: var(--sea); }
@@ -276,6 +277,8 @@
   details.info { margin-top: 26px; background: var(--bg-card); border:1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
   details.info summary { cursor:pointer; padding:16px 20px; font-weight:700; font-family:'Fraunces',serif; font-size:18px; list-style:none; display:flex; align-items:center; gap:10px; }
   details.info summary::-webkit-details-marker { display:none; }
+  details.info summary::after { content:""; margin-left:auto; flex-shrink:0; width:9px; height:9px; border-right:2px solid var(--ink-soft); border-bottom:2px solid var(--ink-soft); transform:rotate(45deg); transition:transform .2s ease; }
+  details.info[open] summary::after { transform:rotate(-135deg); }
   details.info[open] summary { border-bottom:1px solid var(--line); }
   .info-body { padding: 16px 22px 20px; font-size: 14.5px; }
   .info-body h4 { margin: 14px 0 5px; font-size: 14px; }
@@ -351,6 +354,9 @@
 
       <h4>Soll / Ist</h4>
       <p>Jede Laufkarte zeigt das geplante <b>Soll</b> und ein freies <b>Ist</b>-Feld – dort trägst du ein, was du tatsächlich gemacht hast oder stattdessen vorhast (z. B. „6 km zügig", „Rad 45 min", „ausgefallen").</p>
+
+      <h4>Pace-Richtwerte</h4>
+      <p>Bei den Läufen steht ein <b>Pace-Richtwert</b> (z. B. „~9:00–9:30/km"). Er ist eine <b>Orientierung für flaches, kühles Terrain</b> und basiert auf deinen letzten Läufen. Führend bleibt das <b>Gefühl</b> (Talk-Test): Bergauf, bei Hitze oder Müdigkeit ist langsamer bei gleichem Aufwand völlig normal – dann nach Gefühl laufen, nicht nach der Uhr.</p>
 
       <p class="warn">Das ist ein allgemeiner, sorgfältiger Trainingsplan und ersetzt keine ärztliche Beratung. Ein sportärztlicher Check vor Trainingsbeginn ist empfohlen; bei Beschwerden Training stoppen und abklären lassen.</p>
     </div>
@@ -435,6 +441,43 @@ function guideCat(s){
   if(/moderat/i.test(s.d)) return "moderate";
   if(/Lauf-Geh/i.test(s.d)) return "walkrun";
   return "easy";
+}
+
+// Pace-Richtwerte (flaches, kühles Terrain) – Orientierung, Gefühl bleibt führend
+function paceHint(s){
+  if(!(s.t==="run"||s.t==="long"||s.t==="race")) return "";
+  const d=(s.d||"").toLowerCase(), l=(s.l||"").toLowerCase();
+  if(s.t==="race") return "~8:30–8:45/km (laufbare Abschnitte)";
+  if(/shakeout/.test(l)) return "~9:30–10:00/km";
+  if(/steigerung|antritt/.test(d)) return "Grundtempo ~9:00/km + Steigerungen nach Gefühl";
+  if(s.t==="long") return "~9:00–9:30/km";
+  if(/sehr locker/.test(d)) return "~9:30–10:00/km";
+  if(/moderat/.test(d)) return "locker ~9:00/km · Mitte ~7:45–8:15/km";
+  if(/lauf-geh/.test(d)) return "Laufanteil ~8:45–9:15/km";
+  return "~8:45–9:15/km";
+}
+
+// Garmin-Zielwerte: Distanz + geschätzte Dauer (für Distanz- ODER Zeitziel im Forerunner)
+function garminLine(s){
+  if(!(s.t==="run"||s.t==="long"||s.t==="race")) return "";
+  const d=(s.d||"").toLowerCase(), l=(s.l||"").toLowerCase();
+  if(s.t==="race") return `<span class="s-garmin">⌚ Garmin: 25 km · Dauer-Ziel ~3:30–3:40 h</span>`;
+  const km=(s.d||"").match(/(\d+(?:[.,]\d+)?)\s*km/i);
+  if(!km){
+    const mn=(s.d||"").match(/(\d+)\s*min/i);
+    return mn ? `<span class="s-garmin">⌚ Garmin: Zeit ~${mn[1]} min · locker</span>` : "";
+  }
+  const dist=parseFloat(km[1].replace(",","."));
+  let pace=9.0; // min/km, repräsentativ
+  if(/shakeout/.test(l) || /sehr locker/.test(d)) pace=9.75;
+  else if(s.t==="long") pace=9.25;
+  else if(/moderat/.test(d)) pace=8.5;
+  else if(/lauf-geh/.test(d)) pace=9.25;
+  const tot=dist*pace;
+  let dur;
+  if(tot<60) dur=`~${Math.round(tot)} min`;
+  else { const h=Math.floor(tot/60), m2=Math.round(tot-h*60); dur=`~${h}:${String(m2).padStart(2,"0")} h`; }
+  return `<span class="s-garmin">⌚ Garmin: ${km[1]} km · Dauer ${dur}</span>`;
 }
 
 const GUIDES = {
@@ -721,7 +764,7 @@ function build() {
             <label><input type="checkbox" data-w="${idx}" data-s="${si}" ${done?'checked':''}>
               <span class="pill ${s.t}">${pillLbl}</span>
               <span class="s-text"><span class="s-label">${s.l}</span><br><span class="s-detail"><span class="plabel soll">Soll</span>${s.d}</span>
-              <span class="s-meta">Empfohlen: ${WD[day]} ${recDate}</span></span></label>
+              <span class="s-meta">Empfohlen: ${WD[day]} ${recDate}${paceHint(s)?` · Pace ${paceHint(s)}`:""}</span>${garminLine(s)}</span></label>
             <span class="caldate ${doneVal?'set':''}">
               ${calSvg}
               ${doneVal?`<span class="cal-lbl">${isoToDM(doneVal)}</span>`:""}
